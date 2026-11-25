@@ -95,6 +95,22 @@ def parse_kv(line):
     return dict((k, _conv(v)) for k, v in _kv_re.findall(line))
 
 
+def raises_hv(cmd):
+    """True for commands that can turn HV on or raise the target: 'e 1' and 'd N' with N > 0."""
+    parts = cmd.strip().split()
+    if len(parts) != 2:
+        return False
+    op, arg = parts
+    if op == "e":
+        return arg != "0"
+    if op == "d":
+        try:
+            return float(arg) > 0
+        except ValueError:
+            return False          # the firmware answers ERR ARG
+    return False
+
+
 class HVLink(object):
     def __init__(self, log=None):
         self.ser = None
@@ -104,6 +120,13 @@ class HVLink(object):
         self.use_checksum = True
         self.log_io = True          # log TX/RX of non-quiet commands
         self.generation = 0         # increments on every (re)open = Arduino reset
+        # Watched by the outer supply interlock (psu_watchdog.py):
+        self.last_ok = 0.0          # time.monotonic() of the last complete reply line from the Arduino
+        self.last_status = None     # (time.monotonic(), generation, dict) of the last good "s" reply
+        # Optional HV permit: callable(cmd) -> None (allowed) or a reason string.  Consulted only for
+        # commands that can raise the voltage ("e 1", "d N" with N > 0); a refusal is returned as
+        # "ERR PSU_WD" without sending anything.
+        self.permit = None
 
     # ------------------------------------------------------------------ ports
     @staticmethod
@@ -160,6 +183,11 @@ class HVLink(object):
         with self.lock:
             if not self.is_open:
                 raise HVError("serial port not open")
+            if self.permit is not None and raises_hv(cmd):
+                reason = self.permit(cmd)
+                if reason:
+                    self.log("> %s   blocked by the supply interlock: %s" % (cmd, reason))
+                    return "ERR PSU_WD"
             line = cmd if (raw or not self.use_checksum) else with_checksum(cmd)
             try:
                 self.ser.reset_input_buffer()
@@ -174,6 +202,7 @@ class HVLink(object):
                 self.log("> %s   < %s" % (line, reply if reply else "(无回复)"))
             if not data.endswith(b"\n"):
                 raise HVTimeout("no reply to %r (got %r)" % (cmd, reply))
+            self.last_ok = time.monotonic()
             return reply
 
     def cmd_ok(self, cmd, quiet=False):
@@ -188,7 +217,9 @@ class HVLink(object):
         line = self.query("s", quiet=quiet)
         if not line.startswith("S "):
             raise HVError("bad status reply: %r" % line)
-        return parse_kv(line)
+        st = parse_kv(line)
+        self.last_status = (time.monotonic(), self.generation, st)
+        return st
 
     def config(self, quiet=True):
         line = self.query("c", quiet=quiet)

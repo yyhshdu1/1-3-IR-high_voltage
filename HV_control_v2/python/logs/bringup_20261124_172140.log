@@ -1,0 +1,38 @@
+17:21:40.676  session HV cap from --hv-max-kv: 1771 units (0.90 kV)
+17:21:43.566  已连接 COM4: HV_control v1.3 ready. Board B. FW 2.8. Name TOF+. Pol +
+17:21:43.903  supply watchdog arm: OK (state ARMED)
+17:22:04.549  [remote] c dacmax 1771
+17:22:04.572  > c dacmax 1771*71   < OK
+17:22:04.572  [remote] c cable 1
+17:22:04.592  > c cable 1*3B   < OK
+17:22:04.592  [remote] c
+17:22:04.829  > c*63   < CFG board=B scale=0.9058 dacmax=1771 up=1000 down=4000 timeout=10 vprogmax=10.50 vprogtol=0.10 ethr=100 sthr=2500 spark=0 sparkwin=60 backoff=1968 xthr=0 xback=3936 xtimeout=0 pid=0 cable=1 pol=1 name=TOF+ strict=0 ack=1
+17:22:04.935  [remote] d 1772
+17:22:05.067  > d 1772   blocked by the supply interlock: d 1772 is above the session HV cap (1771 units = 0.90 kV)
+17:22:05.165  [remote] e 1
+17:22:05.184  > e 1*74   < OK
+17:22:05.185  [remote] d 394
+17:22:05.200  > d 394*7A   < OK
+17:22:06.770  放电事件: 总计 1
+17:22:08.270  放电事件: 总计 2
+17:23:18.487  [remote] d 0
+17:23:18.499  > d 0*74   < OK
+17:23:20.296  [remote] e 0
+17:23:20.312  > e 0*75   < OK
+17:24:09.454  [remote] c
+17:24:09.824  > c*63   < CFG board=B scale=0.9058 dacmax=1771 up=1000 down=4000 timeout=10 vprogmax=10.50 vprogtol=0.10 ethr=100 sthr=2500 spark=0 sparkwin=60 backoff=1968 xthr=0 xback=3936 xtimeout=0 pid=0 cable=1 pol=1 name=TOF+ strict=0 ack=1
+17:24:09.921  [remote] e 1
+17:24:09.931  > e 1*74   < OK
+17:24:09.931  [remote] d 394
+17:24:09.951  > d 394*7A   < OK
+17:24:11.369  放电事件: 总计 3
+17:24:12.930  放电事件: 总计 4
+17:25:51.935  [remote] d 0
+17:25:51.952  > d 0*74   < OK
+17:25:53.568  [remote] e 0
+17:25:53.582  > e 0*75   < OK
+17:30:15.559  !! supply watchdog TRIPPED: CH1 output found OFF while it should be on (front panel or supply fault) -> sending z to the Arduino (TOF+)
+17:30:15.570  > z*7A   < OK
+17:30:15.570  z -> OK
+17:30:15.570  !!! OUTER INTERLOCK: supply watchdog TRIPPED: CH1 output found OFF while it should be on (front panel or supply fault)
+17:30:15.886  故障变化: 0x0 -> 0x13 (VPROG过压, DAC回读不符, ADC卡死)

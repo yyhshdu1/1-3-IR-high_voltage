@@ -1,0 +1,9 @@
+2026-11-24 16:56:54.323  psu_watchdog start: ch=CH1 v_nom=24.00+-0.50 i_max=None hb_timeout=3.0 ok_age_max=5.0 log=C:\Users\CeNTREX\Documents\GitHub\1-3-IR-high_voltage\HV_control_v2\python\logs\psu_watchdog_20261124_165654.log
+2026-11-24 16:56:54.323  listening on 127.0.0.1:50733
+2026-11-24 16:56:54.414  SPD3303X connected: Siglent Technologies,SPD3303X,SPD3XJGX903210,1.01.01.03.11R1,V6.2
+2026-11-24 16:56:54.435  CH1 output is ON at start; left as it is
+2026-11-24 16:56:54.641  client TOF+ ARMED (port COM4, board TOF+)
+2026-11-24 16:56:57.191  !!! TRIP: stage7-test: stage 7 test: trip at 0.4 kV -> switching CH1 off
+2026-11-24 16:56:57.264  CH1 output OFF (confirmed in the status word)
+2026-11-24 16:57:09.687  reset by TOF+ (was: stage7-test: stage 7 test: trip at 0.4 kV); CH1 stays OFF until power_on
+2026-11-24 16:57:09.707  CH1 output ON by TOF+ (24.000 V, limit 1.500 A)

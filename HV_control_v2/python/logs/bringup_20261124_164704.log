@@ -1,0 +1,238 @@
+16:47:04.897  session HV cap from --hv-max-kv: 1771 units (0.90 kV)
+16:47:07.792  已连接 COM4: HV_control v1.3 ready. Board B. FW 2.8. Name TOF+. Pol +
+16:47:07.792  psu_watchdog not running -> starting it
+16:47:07.799  started psu_watchdog.py (own window; it keeps running when this GUI closes)
+16:47:08.055  故障变化: 0x0 -> 0x11 (VPROG过压, ADC卡死)
+16:47:08.398  supply watchdog arm: OK (state ARMED)
+16:55:21.743  session HV cap: 1771 units (0.90 kV)
+16:55:21.743  == 开始: Stage 7 tests
+16:55:21.743  == 0. Preparation
+16:55:22.809  故障变化: 0x11 -> 0x13 (VPROG过压, DAC回读不符, ADC卡死)
+16:55:24.306  故障变化: 0x13 -> 0x0 (无)
+16:55:24.754  [PASS] 0 start: 24 V on, no fault, HV off, DAC 0 | 24 V supply 24.003 V 0.321 A; hv=0 tgt=0 cur=0 flt=0x0 xh=0 xtrips=0
+16:55:25.178  > c cable 1*3B   < OK
+16:55:25.210  > c dacmax 1771*71   < OK
+16:55:25.447  [PASS] 0 firmware cap in RAM: dacmax=1771 (0.90 kV), cable=1 (not saved) | was dacmax=59055 cable=0
+16:55:28.294  [PASS] 0 v_mon / i_mon at HV off (used as zero offsets) | v_mon 0.0171 V, i_mon 0.0156 V
+16:55:28.294  > d 1772   blocked by the supply interlock: d 1772 is above the session HV cap (1771 units = 0.90 kV)
+16:55:28.303  [PASS] 0 GUI cap refuses d 1772 (above 0.90 kV), nothing sent | ERR PSU_WD
+16:55:28.303  == 1. HV_enable shutdown (1b): e 0, d 0.5 kV, v_mon must stay at 0
+16:55:28.322  > e 0*75   < OK
+16:55:28.332  > d 1000*45   < OK
+16:55:38.232  [PASS] 1b HV_enable off: v_mon stays ~0 with d 1000 (0.51 kV programmed) | v_prog 0.185 V (expected 0.169), peak v_mon 0.0005 V (= 1 V)
+16:55:38.238  > d 0*74   < OK
+16:55:39.190  == 2. Firmware cap: d above dacmax must be refused by the firmware
+16:55:39.210  > d 1821*4E   < ERR RANGE
+16:55:39.210  [PASS] 2 firmware refuses d 1821 (dacmax 1771) | ERR RANGE
+16:55:39.210  == 3. Staircase 0.2/0.4/0.6/0.8 kV, 10 s each
+16:55:39.230  > e 1*74   < OK
+16:55:39.230  == 3. Staircase: 0.2 kV
+16:55:39.241  > d 394*7A   < OK
+16:55:40.197  放电事件: 总计 2
+16:55:50.553  [PASS] 3 0.2 kV: v_mon agrees with the target | v_mon 0.177 kV (-11.7 %), v_prog 0.081 V, i_mon 0.00 uA, ev +0, 24 V supply 24.003 V 0.368 A
+16:55:50.553  == 3. Staircase: 0.4 kV
+16:55:50.573  > d 787*7C   < OK
+16:56:01.423  [PASS] 3 0.4 kV: v_mon agrees with the target | v_mon 0.378 kV (-5.6 %), v_prog 0.149 V, i_mon 0.00 uA, ev +0, 24 V supply 24.003 V 0.369 A
+16:56:01.423  == 3. Staircase: 0.6 kV
+16:56:01.445  > d 1181*4D   < OK
+16:56:12.184  [PASS] 3 0.6 kV: v_mon agrees with the target | v_mon 0.578 kV (-3.7 %), v_prog 0.216 V, i_mon 0.00 uA, ev +0, 24 V supply 24.003 V 0.369 A
+16:56:12.184  == 3. Staircase: 0.8 kV
+16:56:12.205  > d 1575*42   < OK
+16:56:22.734  [PASS] 3 0.8 kV: v_mon agrees with the target | v_mon 0.780 kV (-2.5 %), v_prog 0.283 V, i_mon 0.01 uA, ev +0, 24 V supply 24.003 V 0.373 A
+16:56:22.734  == 3. Ramp down and decay
+16:56:22.817  > d 0*74   < OK
+16:56:25.218  [PASS] 3 ramp down: v_mon back below 0.02 V | 1.5 s after the DAC reached 0
+16:56:25.232  > e 0*75   < OK
+16:56:25.232  == 4a. X-ray: real GMC-800 background on COM5
+16:56:26.415  [FAIL] 4a GMC-800 on COM5 opens | SerialException("Cannot configure port, something went wrong. Original message: PermissionError(13, 'A device attached to the system is not functioning.', None, 31)")
+16:56:26.415  X-ray forwarding started (SimDose)
+16:56:26.467  X 射线读数过滤: first dose-meter sample after (re)start ignored (0.10 uSv/h)
+16:56:29.601  == 4b. X-ray: alarm with simulated 1.00 uSv/h at 0.6 kV -> stepwise back-off
+16:56:29.798  > c xthr 40*71   < OK
+16:56:29.821  > c xback 400*24   < OK
+16:56:29.841  > c xtimeout 5*55   < OK
+16:56:29.849  > e 1*74   < OK
+16:56:29.911  > d 1181*4D   < OK
+16:56:31.545  X-ray source switched to SimDose
+16:56:32.077  放电事件: 总计 3
+16:56:32.800  !! X 射线告警回退: 第 1 次, 读数=100×0.01 µSv/h, 目标=781
+16:56:33.780  放电事件: 总计 4
+16:56:36.074  [PASS] 4b alarm: firmware backs off 400 units per step (every 3 s) | xtrips +2, tgt 381, v_mon 0.575 -> 0.204 kV
+16:56:36.093  [PASS] 4b alarm: raising the target is refused (ERR XRAY) | ERR XRAY
+16:56:36.093  == 4c. X-ray: back to 0.10 uSv/h -> hold released, voltage can be raised again
+16:56:36.528  !! X 射线告警回退: 第 2 次, 读数=100×0.01 µSv/h, 目标=381
+16:56:37.626  放电事件: 总计 5
+16:56:38.331  [PASS] 4c hold released below 80 % of the threshold; d 0.6 kV accepted | xh=0, d -> OK, v_mon 0.496 kV
+16:56:38.331  == 4d. X-ray: monitor lost (forwarding stopped) at 0.6 kV -> 0x40 after 5 s
+16:56:38.331  X 射线监测已断开 (固件在 xtimeout 后会因监测丢失而降压)
+16:56:43.171  [PASS] 4d monitor lost: flt 0x40 after ~5 s, ramp down, HV off; 24 V untouched | 0x40 after 4.6 s; hv=0 tgt=0 cur=0 flt=0x40 xh=0 xtrips=2; v_mon 0.337 kV; watchdog ARMED
+16:56:43.181  == 4e. X-ray: xback 0 -> alarm latches fault 0x20 and ramps to 0
+16:56:43.201  > c xback 0*20   < OK
+16:56:43.201  X-ray forwarding started (SimDose)
+16:56:43.259  X 射线读数过滤: first dose-meter sample after (re)start ignored (0.10 uSv/h)
+16:56:45.760  > e 1*74   < OK
+16:56:45.770  > d 787*7C   < OK
+16:56:47.232  放电事件: 总计 6
+16:56:48.113  [PASS] 4e xback 0: fault 0x20 latched, DAC 0, HV off | hv=0 tgt=0 cur=0 flt=0x20 xh=1 xtrips=3; v_mon 0.112 kV
+16:56:48.113  X 射线监测已断开 (固件在 xtimeout 后会因监测丢失而降压)
+16:56:48.164  > c xthr 0*45   < OK
+16:56:48.185  > c xback 3936*1F   < OK
+16:56:48.207  > c xtimeout 0*50   < OK
+16:56:48.207  [PASS] 4 X-ray settings restored (RAM) | xthr=0, xback=3936, xtimeout=0
+16:56:48.207  == 5a. Outer interlock: watchdog process killed at 0.6 kV -> client sends z
+16:56:48.298  > e 1*74   < OK
+16:56:48.308  > d 1181*4D   < OK
+16:56:48.328  !! X 射线告警回退: 第 3 次, 读数=100×0.01 µSv/h, 目标=0
+16:56:48.328  故障变化: 0x0 -> 0x20 (X射线告警(已降压))
+16:56:49.299  故障变化: 0x20 -> 0x0 (无)
+16:56:50.078  killing the watchdog process (pid 2136) on purpose
+16:56:50.109  放电事件: 总计 7
+16:56:51.891  !! supply watchdog not answering (no reply for > 2.0 s) -> sending z to the Arduino (TOF+)
+16:56:51.901  > z*7A   < OK
+16:56:51.901  z -> OK
+16:56:51.901  !!! OUTER INTERLOCK: supply watchdog not answering (no reply for > 2.0 s)
+16:56:53.841  [PASS] 5a watchdog killed: z within ~2.5 s, HV off, v_mon decays (24 V stays on) | z after 2.3 s; v_mon < 0.02 V after 1.5 s more
+16:56:53.841  > e 1   blocked by the supply interlock: supply watchdog not answering (no reply for > 2.0 s)
+16:56:53.841  [PASS] 5a no watchdog: e 1 refused | ERR PSU_WD
+16:56:53.852  started psu_watchdog.py (own window; it keeps running when this GUI closes)
+16:56:55.646  [PASS] 5a watchdog restarted and re-armed | state ARMED, CH1 ON
+16:56:55.646  == 5b. Outer interlock: trip at 0.4 kV -> 24 V cut
+16:56:55.650  > e 1*74   < OK
+16:56:55.671  > d 787*7C   < OK
+16:56:57.336  放电事件: 总计 8
+16:56:57.524  !! supply watchdog TRIPPED: stage7-test: stage 7 test: trip at 0.4 kV -> sending z to the Arduino (TOF+)
+16:56:57.534  > z*7A   < OK
+16:56:57.534  z -> OK
+16:56:57.534  !!! OUTER INTERLOCK: supply watchdog TRIPPED: stage7-test: stage 7 test: trip at 0.4 kV
+16:56:58.056  打火事件(高阈值): 总计 1
+16:56:58.065  故障变化: 0x0 -> 0x11 (VPROG过压, ADC卡死)
+16:56:58.065  放电事件: 总计 9
+16:56:59.444  [PASS] 5b trip: CH1 off, firmware sees the 24 V loss and shuts HV off | CH1 off after 0.00 s; hv=0 tgt=0 cur=0 flt=0x11 xh=1 xtrips=3
+16:56:59.444  waiting 10 s with 24 V off ...
+16:57:10.515  故障变化: 0x11 -> 0x13 (VPROG过压, DAC回读不符, ADC卡死)
+16:57:12.344  [PASS] 5b reset + 24 V ON: HV off, DAC 0, v_mon back at 0, no fault | reset=OK power_on=OK; v_mon 0.0002 V; hv=0 tgt=0 cur=0 flt=0x0 xh=1 xtrips=3
+16:57:12.344  == Finishing: HV off, DAC 0
+16:57:12.674  left in RAM (not saved): dacmax=1771 (0.90 kV cap), cable=1; a reset restores the EEPROM values
+16:57:12.674  highest v_mon seen during the run: 0.782 kV
+16:57:12.680  == Done: all steps run
+16:57:12.680  stage 7 report: C:\Users\CeNTREX\Documents\GitHub\1-3-IR-high_voltage\HV_control_v2\python\logs\stage7_report_20261124_165712.md
+16:57:12.680  stage 7 tests finished; report C:\Users\CeNTREX\Documents\GitHub\1-3-IR-high_voltage\HV_control_v2\python\logs\stage7_report_20261124_165712.md
+16:57:12.680  == 完成: Stage 7 tests
+16:57:13.172  故障变化: 0x13 -> 0x0 (无)
+17:14:56.563  session HV cap: 1771 units (0.90 kV)
+17:14:56.563  == 开始: Stage 7 tests
+17:14:56.563  == 0. Preparation
+17:14:57.733  [PASS] 0 start: 24 V on, no fault, HV off, DAC 0 | 24 V supply 24.001 V 0.321 A; hv=0 tgt=0 cur=0 flt=0x0 xh=1 xtrips=3
+17:14:58.051  > c cable 1*3B   < OK
+17:14:58.075  > c dacmax 1771*71   < OK
+17:14:58.320  [PASS] 0 firmware cap in RAM: dacmax=1771 (0.90 kV), cable=1 (not saved) | was dacmax=1771 cable=1
+17:15:00.997  [PASS] 0 v_mon / i_mon at HV off (used as zero offsets) | v_mon 0.0174 V, i_mon 0.0158 V
+17:15:00.997  > d 1772   blocked by the supply interlock: d 1772 is above the session HV cap (1771 units = 0.90 kV)
+17:15:01.014  [PASS] 0 GUI cap refuses d 1772 (above 0.90 kV), nothing sent | ERR PSU_WD
+17:15:01.014  == 1. HV_enable shutdown (1b): e 0, d 0.5 kV, v_mon must stay at 0
+17:15:01.194  > e 0*75   < OK
+17:15:01.220  > d 1000*45   < OK
+17:15:11.027  [PASS] 1b HV_enable off: v_mon stays ~0 with d 1000 (0.51 kV programmed) | v_prog 0.186 V (expected 0.169), peak v_mon 0.0002 V (= 1 V)
+17:15:11.036  > d 0*74   < OK
+17:15:11.841  == 2. Firmware cap: d above dacmax must be refused by the firmware
+17:15:11.871  > d 1821*4E   < ERR RANGE
+17:15:11.871  [PASS] 2 firmware refuses d 1821 (dacmax 1771) | ERR RANGE
+17:15:11.871  == 3. Staircase 0.2/0.4/0.6/0.8 kV, 10 s each
+17:15:11.885  > e 1*74   < OK
+17:15:11.885  == 3. Staircase: 0.2 kV
+17:15:11.904  > d 394*7A   < OK
+17:15:13.007  放电事件: 总计 10
+17:15:14.033  放电事件: 总计 11
+17:15:22.981  [PASS] 3 0.2 kV: v_mon agrees with the target | v_mon 0.177 kV (-11.6 %), v_prog 0.081 V, i_mon 0.01 uA, ev +0, 24 V supply 24.001 V 0.357 A
+17:15:22.981  == 3. Staircase: 0.4 kV
+17:15:22.995  > d 787*7C   < OK
+17:15:33.784  [PASS] 3 0.4 kV: v_mon agrees with the target | v_mon 0.378 kV (-5.6 %), v_prog 0.149 V, i_mon 0.00 uA, ev +0, 24 V supply 24.001 V 0.360 A
+17:15:33.784  == 3. Staircase: 0.6 kV
+17:15:33.807  > d 1181*4D   < OK
+17:15:45.250  [PASS] 3 0.6 kV: v_mon agrees with the target | v_mon 0.578 kV (-3.6 %), v_prog 0.216 V, i_mon 0.00 uA, ev +0, 24 V supply 24.001 V 0.361 A
+17:15:45.250  == 3. Staircase: 0.8 kV
+17:15:45.262  > d 1575*42   < OK
+17:15:56.916  [PASS] 3 0.8 kV: v_mon agrees with the target | v_mon 0.779 kV (-2.6 %), v_prog 0.283 V, i_mon 0.00 uA, ev +0, 24 V supply 24.001 V 0.365 A
+17:15:56.916  == 3. Ramp down and decay
+17:15:56.927  > d 0*74   < OK
+17:15:59.398  [PASS] 3 ramp down: v_mon back below 0.02 V | 2.0 s after the DAC reached 0
+17:15:59.418  > e 0*75   < OK
+17:15:59.418  == 4a. X-ray: real GMC-800 background on COM5
+17:16:01.597  GMC-800: GMC-800Re1.13 serial 100030393033B7
+17:16:01.597  X-ray forwarding started (Gmc800Source)
+17:16:01.609  X 射线读数过滤: first dose-meter sample after (re)start ignored (0.07 uSv/h)
+17:16:16.088  [PASS] 4a GMC-800 readings reach the firmware (background below the 0.40 uSv/h test threshold) | xr=12 (x0.01 uSv/h), forwarded 14, bad 0, last: cps=0 window_mean=0.20 cps  ->  0.078 uSv/h
+17:16:16.088  == 4b. X-ray: alarm with simulated 1.00 uSv/h at 0.6 kV -> stepwise back-off
+17:16:16.121  > c xthr 40*71   < OK
+17:16:16.149  > c xback 400*24   < OK
+17:16:16.173  > c xtimeout 5*55   < OK
+17:16:16.181  > e 1*74   < OK
+17:16:16.202  > d 1181*4D   < OK
+17:16:17.919  X-ray source switched to SimDose
+17:16:17.961  放电事件: 总计 12
+17:16:19.771  !! X 射线告警回退: 第 4 次, 读数=100×0.01 µSv/h, 目标=781
+17:16:23.253  !! X 射线告警回退: 第 5 次, 读数=100×0.01 µSv/h, 目标=381
+17:16:23.532  [PASS] 4b alarm: firmware backs off 400 units per step (every 3 s) | xtrips +2, tgt 381, v_mon 0.577 -> 0.177 kV
+17:16:23.553  [PASS] 4b alarm: raising the target is refused (ERR XRAY) | ERR XRAY
+17:16:23.553  == 4c. X-ray: back to 0.10 uSv/h -> hold released, voltage can be raised again
+17:16:24.929  放电事件: 总计 13
+17:16:25.903  [PASS] 4c hold released below 80 % of the threshold; d 0.6 kV accepted | xh=0, d -> OK, v_mon 0.579 kV
+17:16:25.903  == 4d. X-ray: monitor lost (forwarding stopped) at 0.6 kV -> 0x40 after 5 s
+17:16:25.903  X 射线监测已断开 (固件在 xtimeout 后会因监测丢失而降压)
+17:16:31.704  [PASS] 4d monitor lost: flt 0x40 after ~5 s, ramp down, HV off; 24 V untouched | 0x40 after 5.6 s; hv=0 tgt=0 cur=0 flt=0x40 xh=0 xtrips=5; v_mon 0.285 kV; watchdog ARMED
+17:16:31.714  == 4e. X-ray: xback 0 -> alarm latches fault 0x20 and ramps to 0
+17:16:31.734  > c xback 0*20   < OK
+17:16:31.734  X-ray forwarding started (SimDose)
+17:16:31.794  X 射线读数过滤: first dose-meter sample after (re)start ignored (0.10 uSv/h)
+17:16:34.708  > e 1*74   < OK
+17:16:34.725  > d 787*7C   < OK
+17:16:37.018  !! X 射线告警回退: 第 6 次, 读数=100×0.01 µSv/h, 目标=0
+17:16:37.018  故障变化: 0x0 -> 0x20 (X射线告警(已降压))
+17:16:37.018  放电事件: 总计 14
+17:16:37.091  [PASS] 4e xback 0: fault 0x20 latched, DAC 0, HV off | hv=0 tgt=0 cur=0 flt=0x20 xh=1 xtrips=6; v_mon 0.102 kV
+17:16:37.091  X 射线监测已断开 (固件在 xtimeout 后会因监测丢失而降压)
+17:16:37.125  > c xthr 0*45   < OK
+17:16:37.142  > c xback 3936*1F   < OK
+17:16:37.173  > c xtimeout 0*50   < OK
+17:16:37.173  [PASS] 4 X-ray settings restored (RAM) | xthr=0, xback=3936, xtimeout=0
+17:16:37.173  == 5a. Outer interlock: watchdog process killed at 0.6 kV -> client sends z
+17:16:37.187  > e 1*74   < OK
+17:16:37.203  > d 1181*4D   < OK
+17:16:38.062  故障变化: 0x20 -> 0x0 (无)
+17:16:38.891  killing the watchdog process (pid 24604) on purpose
+17:16:38.917  放电事件: 总计 15
+17:16:39.948  放电事件: 总计 16
+17:16:40.522  !! supply watchdog not answering (no reply for > 2.0 s) -> sending z to the Arduino (TOF+)
+17:16:40.657  > z*7A   < OK
+17:16:40.657  z -> OK
+17:16:40.657  !!! OUTER INTERLOCK: supply watchdog not answering (no reply for > 2.0 s)
+17:16:42.690  [PASS] 5a watchdog killed: z within ~2.5 s, HV off, v_mon decays (24 V stays on) | z after 2.3 s; v_mon < 0.02 V after 1.5 s more
+17:16:42.690  > e 1   blocked by the supply interlock: supply watchdog not answering (no reply for > 2.0 s)
+17:16:42.690  [PASS] 5a no watchdog: e 1 refused | ERR PSU_WD
+17:16:42.693  started psu_watchdog.py (own window; it keeps running when this GUI closes)
+17:16:44.311  [PASS] 5a watchdog restarted and re-armed | state ARMED, CH1 ON
+17:16:44.311  == 5b. Outer interlock: trip at 0.4 kV -> 24 V cut
+17:16:44.321  > e 1*74   < OK
+17:16:44.344  > d 787*7C   < OK
+17:16:45.658  放电事件: 总计 17
+17:16:46.085  !! supply watchdog TRIPPED: stage7-test: stage 7 test: trip at 0.4 kV -> sending z to the Arduino (TOF+)
+17:16:46.095  > z*7A   < OK
+17:16:46.095  z -> OK
+17:16:46.095  !!! OUTER INTERLOCK: supply watchdog TRIPPED: stage7-test: stage 7 test: trip at 0.4 kV
+17:16:46.467  打火事件(高阈值): 总计 2
+17:16:46.467  故障变化: 0x0 -> 0x11 (VPROG过压, ADC卡死)
+17:16:46.467  放电事件: 总计 18
+17:16:47.817  [PASS] 5b trip: CH1 off, firmware sees the 24 V loss and shuts HV off | CH1 off after 0.00 s; hv=0 tgt=0 cur=0 flt=0x11 xh=1 xtrips=6
+17:16:47.817  waiting 10 s with 24 V off ...
+17:16:59.122  故障变化: 0x11 -> 0x13 (VPROG过压, DAC回读不符, ADC卡死)
+17:17:00.270  [PASS] 5b reset + 24 V ON: HV off, DAC 0, v_mon back at 0, no fault | reset=OK power_on=OK; v_mon -0.0001 V; hv=0 tgt=0 cur=0 flt=0x0 xh=1 xtrips=6
+17:17:00.270  == Finishing: HV off, DAC 0
+17:17:00.847  left in RAM (not saved): dacmax=1771 (0.90 kV cap), cable=1; a reset restores the EEPROM values
+17:17:00.847  highest v_mon seen during the run: 0.782 kV
+17:17:00.847  == Done: all steps run
+17:17:00.847  stage 7 report: C:\Users\CeNTREX\Documents\GitHub\1-3-IR-high_voltage\HV_control_v2\python\logs\stage7_report_20261124_171700.md
+17:17:00.847  stage 7 tests finished; report C:\Users\CeNTREX\Documents\GitHub\1-3-IR-high_voltage\HV_control_v2\python\logs\stage7_report_20261124_171700.md
+17:17:00.847  == 完成: Stage 7 tests
+17:17:00.858  故障变化: 0x13 -> 0x0 (无)
+17:21:35.308  > z*7A   < OK
+17:21:35.487  supply watchdog: disarmed (state IDLE)

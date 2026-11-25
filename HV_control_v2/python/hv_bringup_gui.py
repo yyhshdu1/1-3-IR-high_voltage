@@ -7,8 +7,11 @@ Needs: pyserial, matplotlib (tkinter is part of Python).
 """
 import collections
 import datetime
+import json
 import os
 import queue
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
@@ -20,6 +23,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
 import bringup_stages as bs  # noqa: E402
+import psu_watchdog as pwd  # noqa: E402
+import stage7_tests as s7  # noqa: E402
 from hv_link import (CH_NAMES, FLT_BITS, RST_BITS, HVError, HVLink,  # noqa: E402
                      decode_bits)
 
@@ -28,6 +33,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(HERE, "logs")
+REMOTE_ADDR = ("127.0.0.1", 50734)     # local remote control (hv_remote.py), off unless enabled
 
 CONFIG_KEYS = [  # (key, label, note)
     ("board", "board", "A/B (改动需 HV 关且 DAC=0)"),
@@ -53,8 +59,80 @@ CONFIG_KEYS = [  # (key, label, note)
 ]
 
 
+class GuiCtx(object):
+    """Context for stage7_tests.run(): what the test sequence may use from the GUI."""
+
+    def __init__(self, app):
+        self.app = app
+        self.link = app.link
+        self.stop = app.job_stop
+        self.emit = app._emit_to(app.tree7)
+
+    def log(self, msg):
+        self.app.log(msg)
+
+    def ask(self, msg):
+        return self.app.ask(msg)
+
+    def step(self, text):
+        self.app.log("== %s" % text)
+        self.app.ui(lambda: self.app.s7_step_var.set(text))
+
+    def wd(self):
+        return self.app.wd
+
+    def wd_status(self):
+        return pwd.request({"type": "status"}, timeout=1.0)
+
+    def wd_restart(self):
+        if not pwd.is_running():
+            self.app._wd_spawn()
+        if self.app.wd is None:
+            return False
+        self.app.wd.arm()
+        time.sleep(1.0)
+        try:
+            return self.wd_status().get("state") == pwd.ARMED
+        except pwd.WatchdogError:
+            return False
+
+    def wd_kill(self):
+        pid = self.wd_status().get("pid")
+        self.app.log("killing the watchdog process (pid %s) on purpose" % pid)
+        os.kill(int(pid), 15)           # Windows: TerminateProcess, like Task Manager
+
+    def wd_trip(self, reason):
+        return pwd.request({"type": "trip", "client": "stage7-test", "reason": reason})
+
+    def make_gmc(self, port):
+        import xray_guard
+        src = xray_guard.Gmc800Source(port)
+        self.app.log("GMC-800: %s" % src.setup())
+        return src
+
+    def xray_start(self, src):
+        import xray_guard
+        self.xray_stop()
+        g = xray_guard.XrayGuard(src, self.link, period=1.0, log=self.app.log, xthr_uSv=0.40)
+        g.start()
+        self.app.xsource, self.app.xguard = src, g
+        self.app.log("X-ray forwarding started (%s)" % type(src).__name__)
+        return g
+
+    def xray_stop(self):
+        self.app.x_disconnect()
+
+    def xray_set_source(self, src):
+        g, old = self.app.xguard, self.app.xsource
+        g.source = src
+        self.app.xsource = src
+        self.app.log("X-ray source switched to %s" % type(src).__name__)
+        if old is not src and hasattr(old, "close"):
+            threading.Timer(2.0, old.close).start()     # let a read in progress finish first
+
+
 class App(object):
-    def __init__(self, root):
+    def __init__(self, root, opts=None):
         self.root = root
         root.title("HV_control 首次上电测试")
         root.geometry("1180x900")
@@ -83,6 +161,16 @@ class App(object):
         self.last_flt = 0
         self.last_ev = 0
         self.stair_thread = None
+
+        # 24 V supply outer interlock (psu_watchdog.py runs as its own process)
+        self.wd = None                 # WatchdogClient for self.link, created on connect
+        self.wd_require = True         # HV commands need an armed, healthy watchdog
+        self.wd_last = (None, "")      # (last watchdog reply, client event)
+        self.wd_event_shown = ""
+        self.wd_status_busy = False
+        self.hv_cap_units = None       # session cap on "d N" (host units), from --hv-max-kv / stage 7 tests
+        self.link.permit = self._hv_permit
+        self.opts = opts or {}
 
         self._build_ui()
         self.refresh_ports()
@@ -178,6 +266,8 @@ class App(object):
             self.vv.append(var)
             ttk.Label(sf, textvariable=var, width=9, foreground="#003399").grid(row=1, column=7 + 2 * i, sticky="w")
 
+        self._build_psu_strip()
+
         # ---- notebook + log
         pw = ttk.PanedWindow(self.root, orient="vertical")
         pw.pack(fill="both", expand=True, padx=4, pady=4)
@@ -198,6 +288,7 @@ class App(object):
         self._build_stage78()
         self._build_xray()
         self._build_config()
+        self._build_stage7tests()
 
     def _make_tree(self, parent, cols, widths, height=10):
         frame = ttk.Frame(parent)
@@ -836,6 +927,84 @@ class App(object):
             ttk.Entry(grid, textvariable=var, width=12).grid(row=i, column=1, sticky="w")
             ttk.Label(grid, text=note, foreground="gray").grid(row=i, column=2, sticky="w", padx=8)
 
+    # ------------------------------------------------------- stage 7 tests (<= 1 kV)
+    def _build_stage7tests(self):
+        f = ttk.Frame(self.nb, padding=6)
+        self.tab7 = f
+        self.nb.add(f, text="Stage 7 tests (<1 kV)")
+        ttk.Label(f, justify="left", text=(
+            "Automatic stage 7 sequence with the TOF3000 connected, never above 0.8 kV "
+            "(GUI cap and firmware dacmax 0.9 kV, abort if v_mon > 0.95 kV):\n"
+            "0 preparation  1 HV_enable shutdown (1b)  2 firmware cap  3 staircase 0.2-0.8 kV  "
+            "4 X-ray interlock (GMC-800 background + simulated alarm)  5 24 V outer interlock at HV.\n"
+            "The red E-stop (z) and 'stop current job' work at any time. Live values: status strip above, "
+            "plot on the stage 7/8 tab.")).pack(anchor="w")
+        bf = ttk.Frame(f)
+        bf.pack(fill="x", pady=4)
+        ttk.Button(bf, text="Run stage 7 tests", command=self.run_stage7_tests).pack(side="left", padx=2)
+        ttk.Button(bf, text="Stop", command=self.on_stop_job).pack(side="left", padx=2)
+        ttk.Label(bf, text="  X-ray meter port:").pack(side="left")
+        self.s7_xport_var = tk.StringVar(value=self.opts.get("xport") or "COM5")
+        ttk.Entry(bf, textvariable=self.s7_xport_var, width=8).pack(side="left", padx=2)
+        self.s7_step_var = tk.StringVar(value="not running")
+        tk.Label(f, textvariable=self.s7_step_var, anchor="w", fg="#003399",
+                 font=("Microsoft YaHei UI", 12, "bold")).pack(fill="x", pady=4)
+        tf, self.tree7 = self._make_tree(f, [("name", "Test"), ("res", "Result"), ("detail", "Detail")],
+                                         [430, 60, 640], height=18)
+        tf.pack(fill="both", expand=True)
+
+    def run_stage7_tests(self):
+        if self.job_thread is not None and self.job_thread.is_alive():
+            messagebox.showwarning("Stage 7 tests", "Another job is running")
+            return
+        if self.wd is None:
+            messagebox.showwarning("Stage 7 tests", "Connect the HV_control board first")
+            return
+        if not messagebox.askokcancel("Stage 7 tests", (
+                "Run the stage 7 test sequence now?\n\n"
+                "- TOF3000 connected, output in the closed insulated box, nobody touching HV parts\n"
+                "- max 0.8 kV; hard caps 0.9 kV (GUI + firmware); abort above 0.95 kV\n"
+                "- the 24 V supply will be switched off and on once (outer interlock test)\n"
+                "- the watchdog window will be killed and restarted once\n"
+                "- X-ray meter on %s (real background), alarms simulated\n\nE-stop (z) stays available."
+                % self.s7_xport_var.get().strip()), parent=self.root):
+            return
+        cap = int(0.9 * s7.UNITS_PER_KV)
+        self.hv_cap_units = cap if self.hv_cap_units is None else min(self.hv_cap_units, cap)
+        self.limit_var.set("%.2f" % (self.hv_cap_units / s7.UNITS_PER_KV))
+        self.log("session HV cap: %d units (%.2f kV)" % (self.hv_cap_units, self.hv_cap_units / s7.UNITS_PER_KV))
+        self._clear_tree(self.tree7)
+        self.nb.select(self.tab7)
+        ctx = GuiCtx(self)
+        xport = self.s7_xport_var.get().strip()
+        sim = s7.SimDose()
+
+        def job(stop):
+            path, aborted = s7.run(ctx, sim, LOG_DIR, xport=xport)
+            self.log("stage 7 tests %s; report %s" % ("ABORTED: " + aborted if aborted else "finished", path))
+        self.run_job("Stage 7 tests", job)
+
+    def _autorun(self, tries=[0]):
+        """--port / --autorun: connect, wait for the armed watchdog, then start the stage 7 tests."""
+        port = self.opts.get("port")
+        if tries[0] == 0 and port:
+            match = [p for p in self.port_box["values"] if p.split()[0] == port]
+            if match:
+                self.port_var.set(match[0])
+                self.on_connect()
+            else:
+                self.log("!! --port %s not found" % port)
+                return
+        tries[0] += 1
+        ready = self.link.is_open and self.wd is not None and self.wd.armed and self.wd.reply is not None
+        if self.opts.get("autorun") and ready:
+            self.root.after(500, self.run_stage7_tests)
+            return
+        if tries[0] < 60:
+            self.root.after(500, self._autorun)
+        elif self.opts.get("autorun"):
+            self.log("!! autorun: board / watchdog not ready after 30 s")
+
     def cfg_read(self):
         def job():
             cfg = self.link.config(quiet=False)
@@ -934,6 +1103,290 @@ class App(object):
                 self.log("!! 急停失败: %s  (请直接断开 HV/24 V!)" % e)
         threading.Thread(target=target, daemon=True).start()
 
+    # ============================================= 24 V supply / outer interlock
+    def _build_psu_strip(self):
+        pf = ttk.LabelFrame(self.root, padding=4, text=(
+            "24 V supply (SPD3303X CH1 -> PCB + TOF3000) - outer interlock: psu_watchdog.py cuts CH1 "
+            "when this program loses control of the Arduino"))
+        pf.pack(fill="x", padx=4, pady=(2, 0))
+        self.psu_state_var = tk.StringVar(value="Watchdog: not checked yet")
+        self.psu_state_label = tk.Label(pf, textvariable=self.psu_state_var, width=26, anchor="w",
+                                        font=("Microsoft YaHei UI", 10, "bold"), fg="gray")
+        self.psu_state_label.pack(side="left")
+        self.psu_meas_var = tk.StringVar(value="CH1: -")
+        ttk.Label(pf, textvariable=self.psu_meas_var, width=36, foreground="#003399").pack(side="left", padx=4)
+        for text, fn in (("Start watchdog", self.wd_start), ("Arm", self.wd_arm),
+                         ("24 V ON", self.wd_power_on), ("24 V OFF", self.wd_power_off),
+                         ("Reset interlock", self.wd_reset)):
+            ttk.Button(pf, text=text, command=fn).pack(side="left", padx=2)
+        self.wd_require_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(pf, text="HV (e 1 / d>0) only while armed", variable=self.wd_require_var,
+                        command=self.wd_require_changed).pack(side="left", padx=6)
+        self.remote_var = tk.BooleanVar(value=bool(self.opts.get("remote")))
+        ttk.Checkbutton(pf, text="Local remote control (127.0.0.1:%d)" % REMOTE_ADDR[1], variable=self.remote_var,
+                        command=self.remote_changed).pack(side="left", padx=6)
+        self.psu_reason_var = tk.StringVar(value="")
+        ttk.Label(pf, textvariable=self.psu_reason_var, foreground="#cc0000").pack(side="left", padx=4)
+        self.root.after(500, self._psu_tick)
+        self.remote_on = bool(self.opts.get("remote"))
+        threading.Thread(target=self._remote_server, daemon=True).start()
+
+    # --------------------------------------------------------- local remote control
+    def remote_changed(self):
+        self.remote_on = bool(self.remote_var.get())
+        self.log("local remote control %s" % ("ENABLED" if self.remote_on else "disabled"))
+
+    def _remote_allowed(self, cmd):
+        """Whitelist for remote commands; None if allowed, else the reason."""
+        parts = cmd.split()
+        if not parts:
+            return "empty command"
+        op = parts[0]
+        if op in ("?", "s", "b", "a", "D", "E", "P", "m", "C", "z", "k") and len(parts) == 1:
+            return None
+        if op == "c" and len(parts) == 1:
+            return None
+        if op == "e" and len(parts) == 2 and parts[1] in ("0", "1"):
+            return None
+        if op == "d" and len(parts) == 2:
+            return None                    # the session cap + watchdog permit still apply in HVLink
+        if op == "c" and len(parts) == 3 and parts[1] == "cable" and parts[2] in ("0", "1"):
+            return None
+        if op == "c" and len(parts) == 3 and parts[1] == "dacmax":
+            try:
+                n = int(parts[2])
+            except ValueError:
+                return "bad dacmax"
+            if self.hv_cap_units is not None and n > self.hv_cap_units:
+                return "dacmax %d above the session cap %d" % (n, self.hv_cap_units)
+            return None
+        return "command not allowed remotely"
+
+    def _remote_handle(self, msg):
+        if not self.remote_on:
+            return {"ok": False, "error": "remote control is disabled in the GUI"}
+        cmd = str(msg.get("cmd", "")).strip()
+        if cmd == "#status":
+            reply, event = self.wd_last
+            out = {"ok": True, "connected": self.link.is_open, "watchdog": reply, "wd_event": event,
+                   "cap_units": self.hv_cap_units, "job_running": bool(self.job_thread and self.job_thread.is_alive())}
+            if self.link.is_open:
+                try:
+                    out.update(status=self.link.status(), volts=self.link.volts(), D=self.link.query("D", quiet=True))
+                except HVError as e:
+                    out.update(ok=False, error=str(e))
+            return out
+        why = self._remote_allowed(cmd)
+        if why:
+            self.log("[remote] refused %r: %s" % (cmd, why))
+            return {"ok": False, "error": why}
+        if not self.link.is_open:
+            return {"ok": False, "error": "not connected"}
+        self.log("[remote] %s" % cmd)
+        try:
+            reply = self.link.query(cmd, quiet=False)
+        except HVError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "reply": reply}
+
+    def _remote_server(self):
+        try:
+            sock = pwd.bind_socket(REMOTE_ADDR)
+        except OSError as e:
+            self.log("!! remote control: cannot listen on %s:%d (%s)" % (REMOTE_ADDR[0], REMOTE_ADDR[1], e))
+            return
+        while True:
+            try:
+                data, peer = sock.recvfrom(4096)
+            except OSError:
+                continue
+            try:
+                msg = json.loads(data.decode("utf-8"))
+                out = self._remote_handle(msg if isinstance(msg, dict) else {})
+            except Exception as e:  # noqa: BLE001
+                out = {"ok": False, "error": repr(e)}
+            try:
+                sock.sendto(json.dumps(out).encode("utf-8"), peer)
+            except OSError:
+                pass
+
+    def _hv_permit(self, cmd):
+        """HVLink.permit: called inside link.query (worker threads); cached state only."""
+        parts = cmd.split()
+        if self.hv_cap_units is not None and len(parts) == 2 and parts[0] == "d":
+            try:
+                n = float(parts[1])
+            except ValueError:
+                n = 0
+            if n > self.hv_cap_units:
+                return "d %s is above the session HV cap (%d units = %.2f kV)" % (
+                    parts[1], self.hv_cap_units, self.hv_cap_units / s7.UNITS_PER_KV)
+        if not self.wd_require:
+            return None
+        if self.wd is None:
+            return "supply watchdog client not running (connect first)"
+        return self.wd.permit(cmd)
+
+    def wd_require_changed(self):
+        want = bool(self.wd_require_var.get())
+        if not want and not messagebox.askokcancel(
+                "Outer interlock",
+                "Allow e 1 / d>0 WITHOUT an armed supply watchdog?\n"
+                "Only for bench work without the TOF3000 (e.g. stage 6 with J1 disconnected)."):
+            self.wd_require_var.set(True)
+            return
+        self.wd_require = want
+        self.log("HV permit from the supply watchdog: %s" % ("REQUIRED" if want else "NOT required (bench mode)"))
+
+    def _wd_update(self, reply, event):
+        """WatchdogClient callback (client thread)."""
+        self.wd_last = (reply, event)
+        if event and event != self.wd_event_shown:
+            self.wd_event_shown = event
+            self.log("!!! OUTER INTERLOCK: %s" % event)
+
+            def show(msg=event):
+                messagebox.showwarning("Outer interlock", "%s\n\nThe Arduino was sent z (if it answers).\n"
+                                       "Check the cause, then 'Reset interlock' and '24 V ON'." % msg,
+                                       parent=self.root)
+            self.ui(lambda: self.root.after(0, show))
+        elif not event:
+            self.wd_event_shown = ""
+
+    def _psu_tick(self):
+        reply, event = self.wd_last
+        if self.wd is None and not self.wd_status_busy:
+            # no client yet (Arduino not connected): ask the watchdog directly, off the UI thread
+            self.wd_status_busy = True
+
+            def worker():
+                try:
+                    r = pwd.request({"type": "status"}, timeout=0.5)
+                except pwd.WatchdogError:
+                    r = None
+                if self.wd is None:
+                    self.wd_last = (r, "")
+                self.wd_status_busy = False
+            threading.Thread(target=worker, daemon=True).start()
+        stale = self.wd is not None and time.monotonic() - self.wd.t_reply > 2.0
+        if reply is None or stale:
+            self.psu_state_var.set("Watchdog: NOT RUNNING")
+            self.psu_state_label.config(fg="#cc0000" if self.wd is not None else "gray")
+            self.psu_meas_var.set("CH1: -")
+        else:
+            st = reply.get("state")
+            if self.wd is not None and not self.wd.armed and st != pwd.TRIPPED:
+                st_txt, color = "%s (this GUI not armed)" % st, "#cc6600"
+            else:
+                st_txt, color = st, {pwd.ARMED: "#007700", pwd.TRIPPED: "#cc0000"}.get(st, "#cc6600")
+            if not reply.get("psu_ok"):
+                st_txt, color = st_txt + ", NO SPD3303X", "#cc0000"
+            self.psu_state_var.set("Watchdog: " + st_txt)
+            self.psu_state_label.config(fg=color)
+            m = reply.get("meas") or {}
+            if m:
+                self.psu_meas_var.set("%s: %s  %.3f V  %.3f A%s   set %s V / %s A" % (
+                    reply.get("ch"), "ON " if m.get("on") else "OFF", m.get("v") or 0.0, m.get("i") or 0.0,
+                    "  CC!" if m.get("cc") else "", reply.get("v_set"), reply.get("i_set")))
+        why = event or (reply or {}).get("reason", "") or (reply or {}).get("error", "")
+        self.psu_reason_var.set(why[:160])
+        self.root.after(500, self._psu_tick)
+
+    def wd_start(self):
+        def worker():
+            if pwd.is_running():
+                self.log("psu_watchdog is already running")
+                return
+            self._wd_spawn()
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _wd_spawn(self):
+        """Start psu_watchdog.py in its own console window (it must outlive this GUI)."""
+        path = os.path.join(HERE, "psu_watchdog.py")
+        flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+        try:
+            subprocess.Popen([sys.executable, "-X", "utf8", path], cwd=HERE, creationflags=flags)
+        except OSError as e:
+            self.log("!! could not start psu_watchdog.py: %s" % e)
+            return False
+        self.log("started psu_watchdog.py (own window; it keeps running when this GUI closes)")
+        for _ in range(50):
+            if pwd.is_running():
+                return True
+            time.sleep(0.1)
+        self.log("!! psu_watchdog.py did not answer within 5 s (see its window)")
+        return False
+
+    def _wd_attach(self, banner):
+        """After a successful connect: start (or reuse) the client and arm it."""
+        name = banner.split("Name ")[1].split(".")[0].strip() if "Name " in banner else ""
+        if not name or name == "-":
+            name = self.link.port or "HV_control"
+        if not pwd.is_running():
+            self.log("psu_watchdog not running -> starting it")
+            self._wd_spawn()
+        if self.wd is None or not self.wd.is_alive() or self.wd.name != name:
+            if self.wd is not None:
+                self.wd.stop()
+            self.wd = pwd.WatchdogClient(self.link, name, log=self.log, on_update=self._wd_update, board=name)
+            self.wd.start()
+        self.wd_arm()
+
+    def _wd_detach(self):
+        """Clean release before the port is closed: the watchdog trips if HV is not off."""
+        wd, self.wd = self.wd, None
+        if wd is None:
+            return
+        try:
+            r = wd.disarm()
+            self.log("supply watchdog: disarmed (state %s%s)" % (
+                r.get("state"), (", " + r.get("reason")) if r.get("reason") else ""))
+        except pwd.WatchdogError as e:
+            self.log("!! supply watchdog disarm: %s" % e)
+        wd.stop()
+
+    def _wd_call(self, what, fn):
+        def worker():
+            try:
+                r = fn()
+            except pwd.WatchdogError as e:
+                self.log("!! supply watchdog %s: %s" % (what, e))
+                return
+            if r.get("ok") and not r.get("error"):
+                self.log("supply watchdog %s: OK (state %s)" % (what, r.get("state")))
+            else:
+                self.log("supply watchdog %s: %s" % (what, r.get("error") or r.get("reason")))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def wd_arm(self):
+        if self.wd is None:
+            messagebox.showwarning("Outer interlock", "Connect the HV_control board first")
+            return
+        self._wd_call("arm", self.wd.arm)
+
+    def wd_reset(self):
+        if self.wd is None:
+            messagebox.showwarning("Outer interlock", "Connect the HV_control board first")
+            return
+        self._wd_call("reset", self.wd.reset)
+
+    def wd_power_on(self):
+        if self.wd is None:
+            messagebox.showwarning("Outer interlock", "Connect the HV_control board first (24 V ON needs an armed watchdog)")
+            return
+        if not messagebox.askokcancel("24 V ON", "Switch the SPD3303X CH1 output ON (24 V to the PCB and TOF3000)?\n"
+                                      "Needs: watchdog ARMED, Arduino answering, HV off, DAC 0."):
+            return
+        self._wd_call("power_on", self.wd.power_on)
+
+    def wd_power_off(self):
+        if not messagebox.askokcancel("24 V OFF", "Switch the SPD3303X CH1 output OFF (PCB and TOF3000 lose 24 V)?"):
+            return
+        if self.wd is not None:
+            self._wd_call("power_off", self.wd.power_off)
+        else:
+            self._wd_call("power_off", lambda: pwd.request({"type": "power_off", "client": "gui"}))
+
     # ======================================================== connection / poll
     def refresh_ports(self):
         ports = ["%s  %s" % (d, desc) for d, desc in HVLink.list_ports()]
@@ -953,9 +1406,14 @@ class App(object):
         if self.link.is_open:
             self.user_disc = True
             self.poll_stop.set()
-            self.link.close()
-            self.log("已断开")
-            self.set_connected(False)
+            self.btn_connect.config(state="disabled")
+
+            def closer():
+                self._wd_detach()          # before closing: the watchdog trips if HV is not off
+                self.link.close()
+                self.log("已断开")
+                self.ui(lambda: self.set_connected(False))
+            threading.Thread(target=closer, daemon=True).start()
             return
         port = self.port_var.get().split()[0] if self.port_var.get() else ""
         if not port:
@@ -966,7 +1424,7 @@ class App(object):
 
         def worker():
             try:
-                self.link.open(port)
+                banner = self.link.open(port)
             except Exception as e:
                 self.log("连接失败: %s" % e)
                 self.ui(lambda: self.set_connected(False, "连接失败"))
@@ -980,6 +1438,10 @@ class App(object):
             self.ui(lambda: self.set_connected(True))
             self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
             self.poll_thread.start()
+            try:
+                self._wd_attach(banner)
+            except Exception as e:  # never let the interlock setup kill the connect
+                self.log("!! supply watchdog setup failed: %r" % (e,))
         threading.Thread(target=worker, daemon=True).start()
 
     def _poll_loop(self):
@@ -1093,6 +1555,7 @@ class App(object):
         self.poll_stop.set()
         self.job_stop.set()
         self.x_disconnect()
+        self._wd_detach()      # clean release: 24 V stays on, the watchdog keeps running
         self.link.close()
         try:
             self.log_file.close()
@@ -1101,9 +1564,24 @@ class App(object):
         self.root.destroy()
 
 
-def main():
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(description="HV_control bring-up GUI")
+    ap.add_argument("--port", help="connect to this port at start, e.g. COM4")
+    ap.add_argument("--xport", help="X-ray meter port for the stage 7 tests (default COM5)")
+    ap.add_argument("--hv-max-kv", type=float, help="session cap on d targets, kV")
+    ap.add_argument("--autorun", action="store_true", help="after connecting, start the stage 7 tests (asks first)")
+    ap.add_argument("--remote", action="store_true",
+                    help="enable local remote control on 127.0.0.1:%d (hv_remote.py)" % REMOTE_ADDR[1])
+    args = ap.parse_args(argv)
     root = tk.Tk()
-    App(root)
+    app = App(root, opts=vars(args))
+    if args.hv_max_kv is not None:
+        app.hv_cap_units = int(args.hv_max_kv * s7.UNITS_PER_KV)
+        app.limit_var.set("%.2f" % args.hv_max_kv)
+        app.log("session HV cap from --hv-max-kv: %d units (%.2f kV)" % (app.hv_cap_units, args.hv_max_kv))
+    if args.port:
+        root.after(800, app._autorun)
     root.mainloop()
 
 
